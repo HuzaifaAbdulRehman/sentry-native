@@ -48,11 +48,13 @@ sentry__telemetry_shutdown(uint64_t timeout)
     SENTRY__MUTEX_INIT_DYN_ONCE(g_telemetry_lock);
     sentry__mutex_lock(&g_telemetry_lock);
 
+    SENTRY_DEBUG("shutting down telemetry");
     sentry__logs_shutdown(timeout);
     sentry__metrics_shutdown(timeout);
     sentry__threadpool_shutdown(g_telemetry_pool);
     sentry__threadpool_free(g_telemetry_pool);
     g_telemetry_pool = NULL;
+    SENTRY_DEBUG("telemetry shutdown complete");
 
     sentry__mutex_unlock(&g_telemetry_lock);
 }
@@ -74,6 +76,8 @@ sentry__telemetry_force_flush(void)
 void
 sentry__telemetry_flush_crash_safe(void)
 {
+    SENTRY_SIGNAL_SAFE_LOG("DEBUG crash-safe telemetry flush");
     sentry__logs_flush_crash_safe();
     sentry__metrics_flush_crash_safe();
+    SENTRY_SIGNAL_SAFE_LOG("DEBUG crash-safe telemetry flush complete");
 }
