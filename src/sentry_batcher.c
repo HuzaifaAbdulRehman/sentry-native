@@ -255,7 +255,9 @@ batch_task_exec(void *task_data)
     task->batcher->batch_func(task->envelope, task->items);
     sentry_value_decref(task->items);
     task->items = sentry_value_new_null();
+    lock_tasks(batcher);
     sentry__atomic_store(&task->state, SENTRY_BATCH_TASK_READY);
+    unlock_tasks(batcher);
 }
 
 static void
