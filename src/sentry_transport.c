@@ -105,6 +105,7 @@ int
 sentry__transport_startup(
     sentry_transport_t *transport, const sentry_options_t *options)
 {
+    sentry__run_free(transport->run);
     transport->run = sentry__run_incref(options->run);
     if (transport->startup_func) {
         SENTRY_DEBUG("starting transport");
