@@ -39,6 +39,8 @@ typedef struct {
 typedef sentry_envelope_item_t *(*sentry_batch_func_t)(
     sentry_envelope_t *envelope, sentry_value_t items);
 
+struct sentry_batch_task_s;
+
 typedef struct {
     long refcount; // (atomic) reference count
     sentry_batcher_buffer_t buffers[SENTRY_BATCHER_BUFFER_COUNT];
@@ -46,6 +48,8 @@ typedef struct {
     long drain_idx; // (atomic) index to the oldest buffer to drain
     long flushing; // (atomic) reentrancy guard to the flusher
     long crash_flush; // (atomic) write completed batch work to disk
+    long task_lock; // (atomic) protects in-flight batch tasks
+    struct sentry_batch_task_s *tasks; // in-flight batch tasks
     long thread_state; // (atomic) sentry_batcher_thread_state_t
     sentry_waitable_flag_t request_flush; // level-triggered flush flag
     sentry_threadid_t batching_thread; // the batching thread
