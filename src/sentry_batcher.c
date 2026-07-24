@@ -24,8 +24,7 @@ sentry__batcher_new(sentry_batch_func_t batch_func,
     sentry_data_category_t data_category, sentry_threadpool_t *threadpool)
 {
     sentry_batcher_t *batcher = SENTRY_MAKE(sentry_batcher_t);
-    if (!batcher || !threadpool) {
-        sentry_free(batcher);
+    if (!batcher) {
         return NULL;
     }
     batcher->refcount = 1;
@@ -378,9 +377,19 @@ process_batch(sentry_batcher_t *batcher, sentry_value_t items, bool crash_safe)
     task->state = SENTRY_BATCH_TASK_PENDING;
     batch_task_link(task);
 
+    if (!batcher->threadpool) {
+        batch_task_exec(task);
+        batch_task_complete(task);
+        batch_task_cleanup(task);
+        return;
+    }
+
     if (sentry__threadpool_submit(batcher->threadpool, batch_task_exec,
             batch_task_complete, batch_task_cleanup, task)
         != 0) {
+        SENTRY_WARN(
+            "dropping telemetry batch: serialization pool unavailable or out "
+            "of memory");
         batch_task_unlink(task);
         batch_task_cleanup(task);
         return;

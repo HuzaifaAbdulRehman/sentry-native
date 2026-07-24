@@ -5,7 +5,6 @@
 #include "sentry_options.h"
 #include "sentry_path.h"
 #include "sentry_ratelimiter.h"
-#include "sentry_sync.h"
 #include "sentry_testsupport.h"
 #include "sentry_uuid.h"
 #include "sentry_value.h"
@@ -390,11 +389,8 @@ SENTRY_TEST(client_report_queue_overflow)
     SENTRY_TEST_OPTIONS_NEW(options);
     sentry_init(options);
 
-    sentry_threadpool_t *pool = sentry__threadpool_new(1);
-    TEST_CHECK(!!pool);
-
     sentry_batcher_t *batcher = sentry__batcher_new(
-        dummy_batch_func, SENTRY_DATA_CATEGORY_LOG_ITEM, pool);
+        dummy_batch_func, SENTRY_DATA_CATEGORY_LOG_ITEM, NULL);
     TEST_CHECK(!!batcher);
 
     // Fill all buffers (SENTRY_BATCHER_QUEUE_LENGTH is 5 in unit tests)
@@ -439,7 +435,6 @@ SENTRY_TEST(client_report_queue_overflow)
     sentry_value_decref(value);
     sentry_envelope_free(envelope);
     sentry__batcher_release(batcher);
-    sentry__threadpool_free(pool);
     sentry_close();
 }
 
