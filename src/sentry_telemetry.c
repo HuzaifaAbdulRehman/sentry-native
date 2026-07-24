@@ -26,17 +26,11 @@ sentry__telemetry_startup(const sentry_options_t *options)
 
     // use two workers for serializing telemetry batches off the batcher threads
     g_telemetry_pool = sentry__threadpool_new(2);
-    if (!g_telemetry_pool) {
-        SENTRY_WARN("failed to allocate telemetry serialization pool");
-        sentry__mutex_unlock(&g_telemetry_lock);
-        return;
-    }
-    if (sentry__threadpool_start(g_telemetry_pool) != 0) {
-        SENTRY_WARN("failed to start telemetry serialization pool");
+    if (!g_telemetry_pool || sentry__threadpool_start(g_telemetry_pool) != 0) {
         sentry__threadpool_free(g_telemetry_pool);
         g_telemetry_pool = NULL;
-        sentry__mutex_unlock(&g_telemetry_lock);
-        return;
+        SENTRY_WARN(
+            "telemetry pool unavailable; serializing in batcher thread");
     }
 
     if (options->enable_logs) {
