@@ -667,6 +667,31 @@ SENTRY_TEST(threadpool_ordered_parallel)
     sentry__threadpool_free(pool);
 }
 
+static long g_spin_waits = 0;
+
+static bool
+spin_wait(int UNUSED(attempt), void *UNUSED(data))
+{
+    sentry__atomic_fetch_and_add(&g_spin_waits, 1);
+    return sentry__atomic_fetch(&g_spin_waits) < 2;
+}
+
+SENTRY_TEST(spin_lock)
+{
+    long lock = 0;
+    sentry__atomic_store(&g_spin_waits, 0);
+
+    sentry__spin_lock(&lock);
+    TEST_CHECK_INT_EQUAL(sentry__atomic_fetch(&lock), 1);
+    TEST_CHECK(!sentry__spin_lock_wait(&lock, spin_wait, NULL));
+    TEST_CHECK_INT_EQUAL(sentry__atomic_fetch(&g_spin_waits), 2);
+    sentry__spin_unlock(&lock);
+    TEST_CHECK_INT_EQUAL(sentry__atomic_fetch(&lock), 0);
+    TEST_CHECK(sentry__spin_lock_wait(&lock, spin_wait, NULL));
+    TEST_CHECK_INT_EQUAL(sentry__atomic_fetch(&g_spin_waits), 2);
+    sentry__spin_unlock(&lock);
+}
+
 SENTRY_TEST(cond_wait_timeout_overflow)
 {
 #if !(defined(SENTRY_PLATFORM_MACOS)                                           \

@@ -69,15 +69,13 @@ sentry__batcher_release(sentry_batcher_t *batcher)
 static inline void
 lock_ref(sentry_batcher_ref_t *ref)
 {
-    while (!sentry__atomic_compare_swap(&ref->lock, 0, 1)) {
-        sentry__cpu_relax();
-    }
+    sentry__spin_lock(&ref->lock);
 }
 
 static inline void
 unlock_ref(sentry_batcher_ref_t *ref)
 {
-    sentry__atomic_store(&ref->lock, 0);
+    sentry__spin_unlock(&ref->lock);
 }
 
 sentry_batcher_t *
@@ -130,6 +128,17 @@ crash_safe_sleep_ms(uint64_t delay_ms)
     }
 }
 
+static bool
+crash_safe_spin_wait(int attempt, void *UNUSED(data))
+{
+    if (attempt > 200) {
+        return false;
+    }
+    const uint32_t sleep_time = (attempt < 10) ? 1 : (attempt < 100) ? 5 : 10;
+    crash_safe_sleep_ms(sleep_time);
+    return true;
+}
+
 // Rotate the active buffer so producers can continue while the consumer is
 // busy. Producers and the consumer may both rotate, so use CAS.
 static bool
@@ -174,32 +183,20 @@ typedef struct sentry_batch_task_s {
 static void
 lock_tasks(sentry_batcher_t *batcher)
 {
-    while (!sentry__atomic_compare_swap(&batcher->task_lock, 0, 1)) {
-        sentry__cpu_relax();
-    }
+    sentry__spin_lock(&batcher->task_lock);
 }
 
 static bool
 lock_tasks_crash_safe(sentry_batcher_t *batcher)
 {
-    int attempts = 0;
-    while (!sentry__atomic_compare_swap(&batcher->task_lock, 0, 1)) {
-        const int max_attempts = 200;
-        if (++attempts > max_attempts) {
-            return false;
-        }
-        const uint32_t sleep_time = (attempts < 10) ? 1
-            : (attempts < 100)                      ? 5
-                                                    : 10;
-        crash_safe_sleep_ms(sleep_time);
-    }
-    return true;
+    return sentry__spin_lock_wait(
+        &batcher->task_lock, crash_safe_spin_wait, NULL);
 }
 
 static void
 unlock_tasks(sentry_batcher_t *batcher)
 {
-    sentry__atomic_store(&batcher->task_lock, 0);
+    sentry__spin_unlock(&batcher->task_lock);
 }
 
 static void
@@ -394,23 +391,12 @@ bool
 sentry__batcher_flush(sentry_batcher_t *batcher, bool crash_safe)
 {
     if (crash_safe) {
-        // In crash-safe mode, spin lock with timeout and backoff
-        int attempts = 0;
-        while (!sentry__atomic_compare_swap(&batcher->flushing, 0, 1)) {
-            const int max_attempts = 200;
-            if (++attempts > max_attempts) {
-                SENTRY_SIGNAL_SAFE_LOG(
-                    "WARN sentry__batcher_flush: timeout waiting for "
-                    "flushing lock in crash-safe mode");
-                return false;
-            }
-
-            // backoff max-wait with max_attempts = 200 based sleep slots:
-            // 9ms + 450ms + 1010ms = 1500ish ms
-            const uint32_t sleep_time = (attempts < 10) ? 1
-                : (attempts < 100)                      ? 5
-                                                        : 10;
-            crash_safe_sleep_ms(sleep_time);
+        if (!sentry__spin_lock_wait(
+                &batcher->flushing, crash_safe_spin_wait, NULL)) {
+            SENTRY_SIGNAL_SAFE_LOG(
+                "WARN sentry__batcher_flush: timeout waiting for "
+                "flushing lock in crash-safe mode");
+            return false;
         }
     } else {
         // Normal mode: try once and return if already flushing
@@ -472,7 +458,7 @@ sentry__batcher_flush(sentry_batcher_t *batcher, bool crash_safe)
             (old_buf_idx + 1) % SENTRY_BATCHER_BUFFER_COUNT);
     }
 
-    sentry__atomic_store(&batcher->flushing, 0);
+    sentry__spin_unlock(&batcher->flushing);
     return true;
 }
 
